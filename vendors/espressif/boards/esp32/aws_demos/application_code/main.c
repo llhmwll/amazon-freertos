@@ -62,6 +62,9 @@
 
 #include "iot_network_manager_private.h"
 
+#include "vl53l1_api.h"
+#include "driver/i2c.h"
+
 #if BLE_ENABLED
     #include "bt_hal_manager_adapter_ble.h"
     #include "bt_hal_manager.h"
@@ -99,6 +102,138 @@ static void prvMiscInitialization( void );
 #endif
 
 /*-----------------------------------------------------------*/
+VL53L1_Dev_t dev;
+VL53L1_DEV Dev = &dev;
+SemaphoreHandle_t i2c_sem;
+#define DIST_QSIZE 128
+
+static i2c_port_t i2c_handle = I2C_NUM_1;
+
+/**
+ * @brief i2c master initialization
+ */
+static esp_err_t i2c_master_init()
+{
+    i2c_port_t i2c_master_port = i2c_handle;
+    i2c_config_t conf;
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = GPIO_NUM_26;
+    conf.sda_pullup_en = GPIO_PULLUP_DISABLE;
+    conf.scl_io_num = GPIO_NUM_27;
+    conf.scl_pullup_en = GPIO_PULLUP_DISABLE;
+    conf.master.clk_speed = 400000;
+    
+    i2c_param_config(i2c_master_port, &conf);
+    return i2c_driver_install(i2c_master_port, conf.mode,
+                              0,
+                              0, 
+                              0);
+}
+VL53L1_Error status;
+
+void printRangingData()
+{
+  static VL53L1_RangingMeasurementData_t RangingData;
+
+  status = VL53L1_GetRangingMeasurementData(Dev, &RangingData);
+  if(!status)
+  {
+      printf("%d,%d,%f,%f\n", RangingData.RangeStatus, 
+                              RangingData.RangeMilliMeter, 
+                              RangingData.SignalRateRtnMegaCps/65536.0,
+                              RangingData.AmbientRateRtnMegaCps/65336.0);
+  }
+}
+
+
+static void
+AutonomousLowPowerRangingTest(void)
+{
+    static VL53L1_RangingMeasurementData_t RangingData;
+    printf("Autonomous Ranging Test\n");
+    int status = VL53L1_WaitDeviceBooted(Dev);
+    status = VL53L1_DataInit(Dev);
+    status = VL53L1_StaticInit(Dev);
+    status = VL53L1_SetDistanceMode(Dev, VL53L1_DISTANCEMODE_LONG);
+    status = VL53L1_SetMeasurementTimingBudgetMicroSeconds(Dev, 50000);
+    status = VL53L1_SetInterMeasurementPeriodMilliSeconds(Dev, 100);
+    VL53L1_UserRoi_t Roi0, Roi1;
+    Roi0.TopLeftX = 0;
+    Roi0.TopLeftY = 15;
+    Roi0.BotRightX = 7;
+    Roi0.BotRightY = 0;
+    Roi1.TopLeftX = 8;
+    Roi1.TopLeftY = 15;
+    Roi1.BotRightX = 15;
+    Roi1.BotRightY = 0;
+    status = VL53L1_SetUserROI(Dev, &Roi0);
+    status = VL53L1_StartMeasurement(Dev);
+
+    int roi = 0;
+
+    if(status) {
+        printf("VL53L1_StartMeasurement failed \n");
+        while(1);
+    }	
+
+    float left = 0, right = 0;
+    if (0/*isInterrupt*/) {
+    } else {
+        do // polling mode
+            {
+                status = VL53L1_WaitMeasurementDataReady(Dev);
+                if(!status) {
+                    status = VL53L1_GetRangingMeasurementData(Dev, &RangingData);
+                    if(status==0) {
+#if 0
+                        printf("%d,%d,%.2f,%.2f\n", RangingData.RangeStatus,
+                               RangingData.RangeMilliMeter,
+                               (RangingData.SignalRateRtnMegaCps/65536.0),
+                               RangingData.AmbientRateRtnMegaCps/65336.0);
+#else
+                        if (roi & 1) {
+                            left = RangingData.RangeMilliMeter;
+                            printf("L %3.1f R %3.1f\n", right/10.0, left/10.0);
+                        } else
+                            right = RangingData.RangeMilliMeter;
+#endif
+                    }
+                    if (++roi & 1) {
+                        status = VL53L1_SetUserROI(Dev, &Roi1);
+                    } else {
+                        status = VL53L1_SetUserROI(Dev, &Roi0);
+                    }
+                    status = VL53L1_ClearInterruptAndStartMeasurement(Dev);
+                }
+            }
+        while (1);
+    }
+    //  return status;
+}
+
+void
+rn_task(void *pvParameters)
+{
+    Dev->I2cHandle = &i2c_handle;
+    Dev->I2cDevAddr = 0x52;
+
+    uint8_t byteData;
+    uint16_t wordData;
+
+    VL53L1_RdByte(Dev, 0x010F, &byteData);
+    printf("VL53L1X Model_ID: %02X\n\r", byteData);
+    VL53L1_RdByte(Dev, 0x0110, &byteData);
+    printf("VL53L1X Module_Type: %02X\n\r", byteData);
+    VL53L1_RdWord(Dev, 0x010F, &wordData);
+    printf("VL53L1X: %02X\n\r", wordData);
+
+    AutonomousLowPowerRangingTest();
+
+    while(1) {
+        vTaskDelay(1000);
+    }
+}
+
 
 /**
  * @brief Application runtime entry point.
@@ -134,7 +269,7 @@ int app_main( void )
             ESP_ERROR_CHECK( esp_bt_controller_mem_release( ESP_BT_MODE_BLE ) );
         #endif /* if BLE_ENABLED */
         /* Run all demos. */
-        DEMO_RUNNER_RunDemos();
+        //DEMO_RUNNER_RunDemos();
     }
 
     /* Start the scheduler.  Initialization that requires the OS to be running,
@@ -142,6 +277,10 @@ int app_main( void )
      * startup hook. */
     /* Following is taken care by initialization code in ESP IDF */
     /* vTaskStartScheduler(); */
+    ESP_ERROR_CHECK(i2c_master_init());
+
+    xTaskCreate(rn_task, "rn_task", 4096, NULL, 7, NULL);
+
     return 0;
 }
 
