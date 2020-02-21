@@ -1,6 +1,6 @@
-/*
- * Amazon FreeRTOS V201906.00 Major
- * Copyright (C) 2019 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
+ /*
+ * FreeRTOS V202002.00
+ * Copyright (C) 2020 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -29,7 +29,10 @@
 /*
  * PEM-encoded client certificate
  *
- * Must include the PEM header and footer:
+ * @todo If you are running one of the FreeRTOS demo projects, set this
+ * to the certificate that will be used for TLS client authentication.
+ *
+ * @note Must include the PEM header and footer:
  * "-----BEGIN CERTIFICATE-----\n"\
  * "...base64 data...\n"\
  * "-----END CERTIFICATE-----\n"
@@ -75,7 +78,10 @@
 #define keyJITR_DEVICE_CERTIFICATE_AUTHORITY_PEM  NULL
 
 /*
- * PEM-encoded client private key.
+ * @brief PEM-encoded client private key.
+ *
+ * @todo If you are running one of the FreeRTOS demo projects, set this
+ * to the private key that will be used for TLS client authentication.
  *
  * Must include the PEM header and footer:
  * "-----BEGIN RSA PRIVATE KEY-----\n"\
